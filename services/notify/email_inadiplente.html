@@ -1,0 +1,43 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; color: #222;">
+  <div style="background: #1a1a2e; padding: 20px 28px; border-radius: 8px 8px 0 0;">
+    <h2 style="color: #fff; margin: 0; font-size: 18px;">Financeiro CASD – Aviso de Cobrança</h2>
+  </div>
+  <div style="background: #f9f9f9; padding: 24px 28px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
+    <p>Olá, <strong>{{ apartment }}</strong>!</p>
+
+    <p>Sua cobrança com vencimento no dia <strong>{{ due_date | date_br}}</strong> ainda está <strong style="color:#c0392b;">em aberto</strong>.</p>
+
+    <p style="background:#fff3cd; border-left: 4px solid #f0ad4e; padding: 12px 16px; border-radius: 4px;">
+      ⚠️ Caso não seja paga, seu apartamento será <strong>bloqueado no dia ???????????????????????????????????????????????????</strong>.
+    </p>
+
+    <table style="width:100%; border-collapse:collapse; margin: 20px 0; font-size:14px;">
+      <tr style="background:#f0f0f0;">
+        <td style="padding:8px 12px; font-weight:bold;">Valor</td>
+        <td style="padding:8px 12px;">{{ value }}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px; font-weight:bold;">Vencimento</td>
+        <td style="padding:8px 12px;">{{ due_date | date_br}}</td>
+      </tr>
+      <tr style="background:#f0f0f0;">
+        <td style="padding:8px 12px; font-weight:bold;">Payment ID</td>
+        <td style="padding:8px 12px; font-size:12px; color:#555;">{{ pid }}</td>
+      </tr>
+    </table>
+
+    <p style="text-align:center; margin: 24px 0;">
+      <a href="{{ inv_url }}" style="background:#1a1a2e; color:#fff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:bold; margin-right:10px;">
+        Ver Fatura
+      </a>
+      <a href="{{ slip_url }}" style="background:#2e7d32; color:#fff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:bold;">
+        Baixar Boleto
+      </a>
+    </p>
+
+    <p style="font-size:13px; color:#666;">
+      Dúvidas? Entre em contato via WhatsApp: <strong>(85) 98113-4259</strong> (Boleto).<br>
+      Este é um e-mail automático, por favor não responda.
+    </p>
+  </div>
+</div>

@@ -1,0 +1,30 @@
+<html>
+<body style="font-family: Arial, sans-serif; color: #333;">
+  <h2 style="color: #4CAF50;">Cobrança Lavanderia CASD</h2>
+  <p>Olá,</p>
+  <p>Segue a cobrança referente ao uso da lavanderia para o apartamento <b>{{ apartment }}</b>.</p>
+  
+  <div style="background-color: #f9f9f9; padding: 15px; border-left: 5px solid #4CAF50; margin: 20px 0;">
+      <p style="margin: 5px 0;"><b>Valor:</b> {{ value | brl }}</p>
+      <p style="margin: 5px 0;"><b>Vencimento:</b> {{ due_date | date_br }}</p>
+  </div>
+
+  <p>Para pagar, clique nos links abaixo:</p>
+  <p>
+      📄 <b><a href="{{ bank_slip_url }}" style="color: #0000EE;">Baixar Boleto (PDF)</a></b><br><br>
+      💳 <b><a href="{{ invoive_url }}" style="color: #0000EE;">Pagar via Cartão/Pix (Site)</a></b>
+  </p>
+
+  {% if residents %}
+  <p style="font-size:small; color:gray;">
+    Moradores registrados: {{ residents | join(", ") }}
+  </p>
+  {% endif %}
+  
+  <p>O <b>detalhamento do consumo</b> está na imagem em anexo.</p>
+  <hr>
+  <p style="font-size: small; color: gray;">
+      Esta é uma mensagem automática.
+  </p>
+</body>
+</html>
