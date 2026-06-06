@@ -1,16 +1,15 @@
 import streamlit as st
+from st_keyup import st_keyup
 from pathlib import Path
 from datetime import date, timedelta
 from models.clients import Group
 import tempfile
 from loguru import logger
-from rapidfuzz import process, fuzz
-from st_keyup import st_keyup
 from models.billing import RunReport
 import asyncio
 
 svc_billing = st.session_state.services["billing"]
-svc_clients = st.session_state.services["clients"]
+svc_clients = st.session_state.services["client"]
 svc_notify = st.session_state.services["notify"]
 dt_residents = st.session_state.data["residents"]
 dt_groups = st.session_state.data["groups"]
@@ -38,9 +37,7 @@ with col1:
         submitted = st.form_submit_button("Mandar")
         if submitted:
             for email in emails:
-                asyncio.run(
-                    svc_notify._send_one(to=email, subject=subject, html_body=body)
-                )
+                svc_notify.send_one_sync(to=email, subject=subject, html_body=body)
             st.write("Mandado!")
 
 with col2:
@@ -58,7 +55,7 @@ with col1:
 with col2:
     due_date = st.date_input(
         "Vencimento",
-        value=date.today().replace(day=10) + timedelta(days=30),
+        value=date.today().replace(day=10),
     )
     dry_run = st.toggle("Modo simulação (dry-run)", value=True)
     if dry_run:
@@ -71,14 +68,11 @@ if planilha_csv:
         tmp_path = Path(tmp.name)
     logger.info("tempfile created")
 
-    invoices = svc_billing.build_invoices(
+    invoices, values = svc_billing.build_invoices(
         extract_path=tmp_path,
         due_date=due_date,
         residents=dt_residents,
         groups=dt_groups,
-    )
-    logger.info(
-        f"invoice list created! Lideres: {[inv.group.leader.name for inv in invoices]}"
     )
 
     st.divider()
@@ -115,13 +109,13 @@ if planilha_csv:
     if st.button("💸💸💸 Gerar Boletos", type="primary", disabled=not invoices):
 
         progress_bar = st.progress(0)
-        status_box = st.status("Gerando...", expanded=True)
+        status_box = st.status("Gerando...", expanded=False)
         N = len(invoices)
 
         def on_progress(message: str, success: bool):
             icon = "✅" if success else "❌"
             status_box.write(f"{icon} {message}")
-            done = len(report.success) + len(report.failed)
+            done = len(report.success) + len(report.failed)  # type: ignore
             progress_bar.progress(done / N)
 
         report = RunReport()
@@ -133,7 +127,9 @@ if planilha_csv:
         )
 
         status_box.update(label="Concluído!", state="complete")
+
         st.session_state["last_report"] = report
+        st.session_state["last_values"] = values
 
         c1, c2, c3 = st.columns(3)
         c1.metric("✅ Sucesso", len(report.success))
@@ -144,26 +140,29 @@ if planilha_csv:
 
         st.header("Notificar")
 
-        if report:
-            st.info(f"{len(report.success)} cobranças prontas para notificação.")
+    report = st.session_state.get("last_report")
+    values = st.session_state.get("last_values")
 
-            preview_item = report.success[0] if report.success else None
-            if preview_item:
-                with st.expander("Preview do e-mail"):
-                    st.markdown(f"""
-          **Para:** {', '.join([r.email for r in preview_item.invoice.group.residents])}
-          **Assunto:** [CASD] Boleto Lavanderia — {preview_item.invoice.group.apartment}
+    if report:
+        st.info(f"{len(report.success)} cobranças prontas para notificação.")
 
-          Valor: **R$ {preview_item.invoice.value:.2f}**
-          Vencimento: **{preview_item.invoice.due_date}**
+        preview_item = report.success[0] if report.success else None
+        if preview_item:
+            with st.expander("Preview do e-mail"):
+                st.markdown(f"""
+        **Para:** {', '.join([r.email for r in preview_item.invoice.group.residents])}
+        **Assunto:** [CASD] Boleto Lavanderia — {preview_item.invoice.group.apartment}
 
-          🔗 [Boleto]({preview_item.bank_splip_url})
-          """)
+        Valor: **R$ {preview_item.invoice.value:.2f}**
+        Vencimento: **{preview_item.invoice.due_date}**
 
-            if st.button("📧 Enviar e-mails", type="primary"):
-                with st.spinner("Enviando..."):
-                    email_report = svc_notify.notify_all(report.success)
-                st.success(f"✅ {email_report.sent} e-mails enviados")
-                if email_report.failed:
-                    st.error(f"❌ {len(email_report.failed)} falhas")
-                    st.json(email_report.failed)
+        🔗 [Boleto]({preview_item.bank_splip_url})
+        """)
+
+        if st.button("📧 Enviar e-mails", type="primary"):
+            with st.spinner("Enviando..."):
+                email_report = svc_notify.notify_all_sync(report.success)
+            st.success(f"✅ {email_report.sent} e-mails enviados")
+            if email_report.failed:
+                st.error(f"❌ {len(email_report.failed)} falhas")
+                st.json(email_report.failed)

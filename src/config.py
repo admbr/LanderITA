@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     gmail_user: EmailStr
     gmail_password: str
     sender_name: str
-    aiosmtp_max_connections: int = 8
+    aiosmtp_max_connections: int = 3
 
     @field_validator("asaas_access_token")
     @classmethod

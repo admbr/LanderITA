@@ -3,7 +3,7 @@ from services.billing.billingService import BillingService
 from src.asaas import AsaasClient
 from services.client.clientService import ClientService
 from services.notify.notifyService import NotifyService
-from src.sheets import fetch_residents, fetch_groups
+from src.utils import fetch_residents, fetch_groups
 
 st.set_page_config(page_title="LanderITA", page_icon="💸", layout="wide")
 
@@ -13,7 +13,7 @@ def get_services():
     asaas = AsaasClient()
     return {
         "billing": BillingService(client=asaas),
-        "clients": ClientService(client=asaas),
+        "client": ClientService(client=asaas),
         "notify": NotifyService(),
     }
 
@@ -27,7 +27,8 @@ def get_data():
     return {
         "residents": residents,
         "groups": fetch_groups(residents=residents),
-        "customers": st.session_state.services["clients"].fetch_from_asaas(),
+        "customers": st.session_state.services["client"].fetch_from_asaas(),
+        "boletos": st.session_state.services["billing"].fetch_boletos_from_asaas(),
     }
 
 

@@ -12,7 +12,7 @@
   <p>Para pagar, clique nos links abaixo:</p>
   <p>
       📄 <b><a href="{{ bank_slip_url }}" style="color: #0000EE;">Baixar Boleto (PDF)</a></b><br><br>
-      💳 <b><a href="{{ invoive_url }}" style="color: #0000EE;">Pagar via Cartão/Pix (Site)</a></b>
+      💳 <b><a href="{{ invoice_url }}" style="color: #0000EE;">Pagar via Cartão/Pix (Site)</a></b>
   </p>
 
   {% if residents %}
@@ -20,11 +20,5 @@
     Moradores registrados: {{ residents | join(", ") }}
   </p>
   {% endif %}
-  
-  <p>O <b>detalhamento do consumo</b> está na imagem em anexo.</p>
-  <hr>
-  <p style="font-size: small; color: gray;">
-      Esta é uma mensagem automática.
-  </p>
 </body>
 </html>

@@ -9,13 +9,12 @@ from models.billing import (
 )
 from models.clients import Group, Resident
 from src.asaas import AsaasClient
-from src.sheets import fetch_groups, fetch_residents_value
+from src.utils import fetch_groups, fetch_residents_value
 from datetime import date
 from services.notify.notifyService import _date_br
 from pydantic import BaseModel, ConfigDict
 from loguru import logger
 import math
-from time import sleep
 
 
 class BillingService(BaseModel):
@@ -28,12 +27,15 @@ class BillingService(BaseModel):
         residents: list[Resident],
         groups: list[Group],
         due_date: date,
-    ) -> list[Invoice]:
+    ) -> tuple[list[Invoice], dict[Resident, float]]:
         logger.info("build_invoices() chamada")
         values = fetch_residents_value(residents=residents, path_csv=extract_path)
         invoices: list[Invoice] = []
         logger.info(f"Valores gerados: {values}")
         for group in groups:
+            description = [
+                f"Lavanderia {group.apartment} -- {_date_br(due_date.isoformat())}\n"
+            ]
             print(f"\n")
             logger.info(
                 f"Procurando divida do apartamento: {group.apartment} (lider: {group.leader.name})"
@@ -44,6 +46,10 @@ class BillingService(BaseModel):
                 if math.isnan(divida):
                     divida = 0.0
                 logger.info(f"Residente {resident.name} tem divida de a {divida}")
+                if divida > 0.0:
+                    description.append(
+                        f"Residente {resident.name} tem divida de a {divida}\n"
+                    )
                 value += divida
             if value == 0.0:
                 continue
@@ -52,15 +58,16 @@ class BillingService(BaseModel):
                     group=group,
                     value=value,
                     due_date=due_date,
-                    description=f"Lavanderia {group.apartment} -- {_date_br(due_date.isoformat())}",
+                    description=" ".join(description),
                     billing_type=BillingType.BOLETO,
                 )
             )
-        return invoices
+        return invoices, values
 
     def post_invoices(
         self,
         invoices: list[Invoice],
+        values: dict[Resident, float],
         dry_run: bool = False,
         on_progress: Callable[[str, bool], None] | None = None,
     ) -> RunReport:
@@ -82,9 +89,13 @@ class BillingService(BaseModel):
                     on_progress(f"[dry_run] {invoice.group.apartment}", True)
                 continue
             try:
-                custumer_id = self.client.get_or_create_customer(invoice.group.leader)[
-                    0
-                ]
+                resident_list = [resident for resident in invoice.group.residents]
+                length = len(resident_list)
+                index = 0
+                for k in range(length):
+                    if values[resident_list[index]] >= values[resident_list[k]]:
+                        index = k
+                custumer_id = self.client.get_or_create_customer(resident_list[k])[0]
                 payment = self.client.create_payment(
                     customer_id=custumer_id, invoice=invoice
                 )
@@ -97,11 +108,20 @@ class BillingService(BaseModel):
                     )
                 )
                 if on_progress:
-                    on_progress(f"V {invoice.group.apartment}", True)
+                    on_progress(f"{invoice.group.apartment}", True)
             except Exception as e:
                 failed.append(
                     BillingFailure(apartment=invoice.group.apartment, reason=str(e))
                 )
                 if on_progress:
-                    on_progress(f"X {invoice.group.apartment}: {e}", False)
+                    on_progress(f"{invoice.group.apartment}: {e}", False)
         return RunReport(success=ok, failed=failed, skipped=skipped)
+
+    def fetch_boletos_from_asaas(self) -> list[tuple[str, ...]]:
+        logger.info("entrando em fetch_boletos_from_asaas")
+        return self.client.list_all_payments()
+
+    def delete_boletos_by_id(self, ids: list[str]) -> None:
+        logger.info("entrando em delete_boleto_by_id")
+        for id in ids:
+            self.client.del_boleto_by_id(id)

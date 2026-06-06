@@ -2,14 +2,14 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from models.billing import *
 from models.clients import *
 from pathlib import Path
-import asyncio
-import aiosmtplib
+import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from src.config import settings
 from loguru import logger
 from pydantic import BaseModel, Field, EmailStr
 from collections.abc import Callable
+from src.utils import get_group_by_leader_cpf
 
 
 def _brl(value: float) -> str:
@@ -30,19 +30,38 @@ _env.filters["brl"] = _brl
 _env.filters["date_br"] = _date_br
 
 
-def render_boleto_email(payment_result: PaymentResult) -> str:
+def render_boleto_email(payment_result: PaymentResult, resident: Resident) -> str:
     template = _env.get_template("email_boleto.html")
     return template.render(
         apartment=payment_result.invoice.group.apartment,
         value=payment_result.invoice.value,
-        due_date=payment_result.invoice.due_date,
+        due_date=str(payment_result.invoice.due_date),
         bank_slip_url=payment_result.bank_splip_url,
         invoice_url=str(payment_result.invoice_url),
         residents=[r.name for r in payment_result.invoice.group.residents],
     )
 
 
-def render_inadimplente_email(payment_result: PaymentResult) -> str:
+def render_boleto_email_some(
+    resident: Resident,
+    value: float,
+    due_date: str,
+    boleto_url: str,
+    pix_url: str,
+    residents: list[Resident],
+) -> str:
+    template = _env.get_template("email_boleto.html")
+    return template.render(
+        apartment=resident.apartment,
+        value=value,
+        due_date=due_date,
+        bank_slip_url=boleto_url,
+        invoice_url=pix_url,
+        residents=[r.name for r in residents],
+    )
+
+
+def render_inadimplente_email(payment_result: PaymentResult, resident: Resident) -> str:
     template = _env.get_template("email_inadimplente.html")
     return template.render(
         apartment=payment_result.invoice.group.apartment,
@@ -56,7 +75,7 @@ def render_inadimplente_email(payment_result: PaymentResult) -> str:
 
 class EmailFailure(BaseModel):
     apartment: str | None
-    email: EmailStr
+    email: EmailStr | None
     reason: str
 
 
@@ -74,81 +93,162 @@ class EmailReport(BaseModel):
 
 
 class NotifyService:
-    async def _send_one(
+
+    def send_one_sync(
         self,
-        to: EmailStr,
+        to: EmailStr | None,
         subject: str,
         html_body: str,
     ) -> None:
-        msg = MIMEMultipart()
-        msg["From"] = f"{settings.sender_name} <{settings.gmail_user}>"
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-        await aiosmtplib.send(
-            msg,
-            hostname="smtp.gmail.com",
-            port=465,
-            use_tls=True,
-            username=settings.gmail_user,
-            password=settings.gmail_password,
-        )
+        logger.info("Entrou no send_one_sync")
 
-    async def _notify_all_async(
+        try:
+            msg = MIMEMultipart()
+            msg["From"] = f"{settings.sender_name} <{settings.gmail_user}>"
+            msg["To"] = to  # type: ignore
+            msg["Subject"] = subject
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(settings.gmail_user, settings.gmail_password)
+                server.sendmail(settings.gmail_user, str(to), msg.as_string())
+                logger.info(f"Email mandado para {to}")
+
+        except Exception as e:
+            logger.error(f"falha ao enviar o email: {e}")
+
+    def notify_all_sync(
         self,
         payment_results: list[PaymentResult],
         on_progress: Callable[[str, bool], None] | None = None,
     ) -> EmailReport:
+
+        logger.info("Entrou no notify_all_sync")
+
         report = EmailReport()
 
-        semaphore = asyncio.Semaphore(settings.aiosmtp_max_connections)
-
-        async def send_with_limits(
-            result: PaymentResult,
-            email: EmailStr,
-        ) -> None:
-            async with semaphore:
+        for result in payment_results:
+            for resident in result.invoice.group.residents:
                 subject = f"[CASD] Boleto Lavanderia — {result.invoice.group.apartment}"
-                html = render_boleto_email(result)
+                html = render_boleto_email(payment_result=result, resident=resident)
                 try:
-                    await self._send_one(to=email, subject=subject, html_body=html)
+
+                    logger.info("Entrou no send_one_sync")
+
+                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                        msg = MIMEMultipart()
+                        msg["From"] = f"{settings.sender_name} <{settings.gmail_user}>"
+                        msg["To"] = resident.email  # type: ignore
+                        msg["Subject"] = subject
+                        msg.attach(MIMEText(html, "html", "utf-8"))
+
+                        server.ehlo()
+                        server.starttls()
+                        server.login(settings.gmail_user, settings.gmail_password)
+                        server.sendmail(
+                            settings.gmail_user, str(resident.email), msg.as_string()
+                        )
+
+                        logger.info(f"Email mandado para {resident.email}")
+
                     report.sent += 1
-                    logger.success(f"V {result.invoice.group.apartment} ==> {email}")
+                    logger.success(
+                        f"V {result.invoice.group.apartment} ==> {resident.email}"
+                    )
                     if on_progress:
-                        on_progress(f"V {email}", True)
+                        on_progress(f"V {resident.email}", True)
                 except Exception as e:
                     report.failed.append(
                         EmailFailure(
                             apartment=result.invoice.group.apartment,
-                            email=email,
+                            email=resident.email,
                             reason=str(e),
                         )
                     )
-                    logger.error(f"X {email}: {e}")
+                    logger.error(f"X {resident.email}: {e}")
                     if on_progress:
-                        on_progress(f"X {email}: {e}", False)
+                        on_progress(f"X {resident.email}: {e}", False)
 
-        tasks = [
-            send_with_limits(result=result, email=email)
-            for result in payment_results
-            for email in result.emails_sent
-        ]
-
-        await asyncio.gather(*tasks)
         return report
 
-    def notify_all(
+    def notify_some(
         self,
-        payment_results: list[PaymentResult],
+        boletos: list[tuple[str, str, str, str, str, str, str, str, str, str]],
+        groups: list[Group],
         on_progress: Callable[[str, bool], None] | None = None,
     ) -> EmailReport:
-        # Precisa aparentar ser sincrono essa parte pq é o q o frontend vai chamar
-        return asyncio.run(
-            self._notify_all_async(
-                payment_results=payment_results, on_progress=on_progress
-            )
-        )
+
+        logger.info("Entrou no notify_some")
+
+        report = EmailReport()
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            for boleto in boletos:
+                id = boleto[0]
+                nome_leader = boleto[1]
+                created_at = boleto[2]
+                due_date = boleto[3]
+                value = boleto[4]
+                net_value = boleto[6]
+                status = boleto[6]
+                cpf_leader = boleto[7]
+                link_boleto = boleto[8]
+                link_pix = boleto[9]
+
+                group = get_group_by_leader_cpf(cpf=cpf_leader, groups=groups)
+
+                if group is not None:
+                    for resident in group.residents:
+                        subject = f"[CASD] Boleto Lavanderia — {group.apartment}"
+                        html = render_boleto_email_some(
+                            resident=resident,
+                            value=float(value),
+                            due_date=due_date,
+                            boleto_url=link_boleto,
+                            pix_url=link_pix,
+                            residents=group.residents,
+                        )
+                        try:
+                            logger.info("Entrou no send_one_sync")
+
+                            msg = MIMEMultipart()
+                            msg["From"] = (
+                                f"{settings.sender_name} <{settings.gmail_user}>"
+                            )
+                            msg["To"] = resident.email  # type: ignore
+                            msg["Subject"] = subject
+                            msg.attach(MIMEText(html, "html", "utf-8"))
+
+                            server.ehlo()
+                            server.starttls()
+                            server.login(settings.gmail_user, settings.gmail_password)
+                            server.sendmail(
+                                settings.gmail_user,
+                                str(resident.email),
+                                msg.as_string(),
+                            )
+
+                            logger.info(f"Email mandado para {resident.email}")
+
+                            report.sent += 1
+                            logger.success(f"V {group.apartment} ==> {resident.email}")
+                            if on_progress:
+                                on_progress(f"V {resident.email}", True)
+                        except Exception as e:
+                            report.failed.append(
+                                EmailFailure(
+                                    apartment=group.apartment,
+                                    email=resident.email,
+                                    reason=str(e),
+                                )
+                            )
+                            logger.error(f"X {resident.email}: {e}")
+                            if on_progress:
+                                on_progress(f"X {resident.email}: {e}", False)
+        return report
 
 
 if __name__ == "__main__":

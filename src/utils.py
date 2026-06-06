@@ -68,29 +68,27 @@ def fetch_residents() -> list[Resident]:
 def fetch_residents_value(
     residents: list[Resident], path_csv: Path
 ) -> dict[Resident, float]:
-    relacao: dict[Resident, float] = {}
     logger.info("fetch_apartment_values() chamada")
+
     try:
         planilha = pd.read_csv(path_csv)
         planilha["Documento"] = planilha["Documento"].apply(
             lambda x: re.sub(r"\D", "", str(x))
         )
     except:
-        logger.error(f"{path_csv} pode ser lido com .csv")
-    try:
-        for resident in residents:
-            divida: float = (
-                planilha[planilha["Documento"] == resident.cpf_cnpj].iloc[:, 7].max()
-                * 3.5
-            )
-            relacao[resident] = divida
-        return relacao
-    except Exception as e:
-        logger.error(
-            f"Erro na criação de da relacao da divida dos moradores (fetch_resident_value): {e}"
-        )
+        logger.error(f"{path_csv} não pode ser lido com .csv")
+        return {}
 
-    return {}
+    relacao: dict[Resident, float] = {}
+    for resident in residents:
+        matches = planilha[planilha["Documento"] == resident.cpf_cnpj]
+        if matches.empty:
+            relacao[resident] = 0.0
+            continue
+        divida = matches.iloc[:, 7].max() * 3.5
+        relacao[resident] = divida
+
+    return relacao
 
 
 def fetch_groups(residents: list[Resident]) -> list[Group]:
@@ -121,3 +119,9 @@ def fetch_groups(residents: list[Resident]) -> list[Group]:
                 )
             )
     return groups
+
+
+def get_group_by_leader_cpf(cpf: str, groups: list[Group]) -> Group | None:
+    for group in groups:
+        if cpf == group.leader.cpf_cnpj:
+            return group
