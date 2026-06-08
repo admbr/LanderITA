@@ -87,3 +87,15 @@ boletos = boletos.reset_index(drop=True)
 event = st.dataframe(data=boletos, on_select="rerun", selection_mode=["multi-row"])
 
 col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("Notificar Selecionados"):
+        with st.spinner("Enviando..."):
+            email_report = svc_notify.notify_some(
+                boletos=[tuple(boletos.loc[row]) for row in event.selection.rows],  # type: ignore
+                groups=dt_groups,
+            )
+        st.success(f"✅ {email_report.sent} e-mails enviados")
+        if email_report.failed:
+            st.error(f"❌ {len(email_report.failed)} falhas")
+            st.json(email_report.failed)

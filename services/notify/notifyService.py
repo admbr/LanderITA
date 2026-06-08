@@ -186,14 +186,26 @@ class NotifyService:
         report = EmailReport()
 
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
+
+            try:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(settings.gmail_user, settings.gmail_password)
+
+                logger.info("SMTP Authenticated successfully with Gmail.")
+
+            except Exception as conn_err:
+
+                logger.critical(
+                    f"Failed to connect or log into SMTP server: {conn_err}"
+                )
+
+                return report
+
             for boleto in boletos:
-                id = boleto[0]
-                nome_leader = boleto[1]
-                created_at = boleto[2]
                 due_date = boleto[3]
                 value = boleto[4]
-                net_value = boleto[6]
-                status = boleto[6]
                 cpf_leader = boleto[7]
                 link_boleto = boleto[8]
                 link_pix = boleto[9]
@@ -212,7 +224,6 @@ class NotifyService:
                             residents=group.residents,
                         )
                         try:
-                            logger.info("Entrou no send_one_sync")
 
                             msg = MIMEMultipart()
                             msg["From"] = (
@@ -221,10 +232,6 @@ class NotifyService:
                             msg["To"] = resident.email  # type: ignore
                             msg["Subject"] = subject
                             msg.attach(MIMEText(html, "html", "utf-8"))
-
-                            server.ehlo()
-                            server.starttls()
-                            server.login(settings.gmail_user, settings.gmail_password)
                             server.sendmail(
                                 settings.gmail_user,
                                 str(resident.email),

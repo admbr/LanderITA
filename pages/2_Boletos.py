@@ -75,6 +75,10 @@ with tab_visualization:
 
     with col2:
         if st.button("Recarregar"):
+            st.session_state.data["boletos"] = (
+                st.session_state.services["billing"].fetch_boletos_from_asaas(),
+            )
+            dt_boletos = st.session_state.data["boletos"]
             st.rerun()
 
 with tab_creation:
