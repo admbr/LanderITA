@@ -6,6 +6,7 @@ from models.clients import Group
 from loguru import logger
 from models.billing import RunReport
 import pandas as pd
+from src.utils import *
 
 svc_billing = st.session_state.services["billing"]
 svc_clients = st.session_state.services["client"]
@@ -15,23 +16,7 @@ dt_groups = st.session_state.data["groups"]
 dt_customers = st.session_state.data["customers"]
 dt_boletos = st.session_state.data["boletos"]
 
-boletos = pd.DataFrame(
-    [
-        {
-            "Id": boleto[0],
-            "Nome": boleto[1],
-            "Criado em": boleto[2],
-            "Vencimento": boleto[3],
-            "value": boleto[4],
-            "netValue": boleto[5],
-            "Status": boleto[6],
-            "CPF": boleto[7],
-            "Boleto": boleto[8],
-            "PIX": boleto[9],
-        }
-        for boleto in dt_boletos
-    ]
-)
+boletos = boletos_to_df(dt_boletos)
 
 st.title("Notificar")
 

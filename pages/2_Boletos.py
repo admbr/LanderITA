@@ -9,6 +9,7 @@ from models.billing import *
 import pandas as pd
 import json
 import math
+from src.utils import *
 
 svc_billing = st.session_state.services["billing"]
 svc_clients = st.session_state.services["client"]
@@ -22,23 +23,7 @@ st.title("📄 BOLETOS!")
 
 tab_visualization, tab_creation = st.tabs(["🧾 Visualizar boletos", "✒️ Criar boletos"])
 
-boletos = pd.DataFrame(
-    [
-        {
-            "Id": boleto[0],
-            "Nome": boleto[1],
-            "Criado em": boleto[2],
-            "Vencimento": boleto[3],
-            "value": boleto[4],
-            "netValue": boleto[5],
-            "Status": boleto[6],
-            "CPF": boleto[7],
-            "Boleto": boleto[8],
-            "PIX": boleto[9],
-        }
-        for boleto in dt_boletos
-    ]
-)
+boletos = boletos_to_df(dt_boletos)
 
 with tab_visualization:
     col1, col2, col3 = st.columns(3)
@@ -75,9 +60,9 @@ with tab_visualization:
 
     with col2:
         if st.button("Recarregar"):
-            st.session_state.data["boletos"] = (
-                st.session_state.services["billing"].fetch_boletos_from_asaas(),
-            )
+            st.session_state.data["boletos"] = st.session_state.services[
+                "billing"
+            ].fetch_boletos_from_asaas()
             dt_boletos = st.session_state.data["boletos"]
             st.rerun()
 

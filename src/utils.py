@@ -125,3 +125,23 @@ def get_group_by_leader_cpf(cpf: str, groups: list[Group]) -> Group | None:
     for group in groups:
         if cpf == group.leader.cpf_cnpj:
             return group
+
+
+def boletos_to_df(boletos: list[tuple[str, ...]]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Id": boleto[0],
+                "Nome": boleto[1],
+                "Criado em": boleto[2],
+                "Vencimento": boleto[3],
+                "value": boleto[4],
+                "netValue": boleto[5],
+                "Status": boleto[6],
+                "CPF": boleto[7],
+                "Boleto": boleto[8],
+                "PIX": boleto[9],
+            }
+            for boleto in boletos
+        ]
+    )
