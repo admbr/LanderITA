@@ -16,7 +16,7 @@ dt_groups = st.session_state.data["groups"]
 dt_customers = st.session_state.data["customers"]
 dt_boletos = st.session_state.data["boletos"]
 
-boletos = boletos_to_df(dt_boletos)
+boletos = boletos_to_df(dt_boletos, dt_groups)
 
 st.title("Notificar")
 
@@ -51,7 +51,10 @@ st.divider()
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    selection1 = st.multiselect("Filtrar por pessoa", sorted(boletos["Nome"].unique()))
+    selection1 = st.multiselect("Filtrar por Nome", sorted(boletos["Nome"].unique()))
+    selection4 = st.multiselect(
+        "Filtrar por Apartamento", sorted(boletos["Apartamento"].unique())
+    )
 with col2:
     selection2 = st.multiselect(
         "Filtrar por Status", sorted(boletos["Status"].unique())
@@ -67,6 +70,8 @@ if selection2:
     boletos = boletos[boletos["Status"].isin(selection2)]
 if selection3:
     boletos = boletos[boletos["Criado em"].isin(selection3)]
+if selection4:
+    boletos = boletos[boletos["Apartamento"].isin(selection4)]
 
 boletos = boletos.reset_index(drop=True)
 event = st.dataframe(data=boletos, on_select="rerun", selection_mode=["multi-row"])
@@ -77,7 +82,7 @@ with col1:
     if st.button("Notificar Selecionados"):
         with st.spinner("Enviando..."):
             email_report = svc_notify.notify_some(
-                boletos=[tuple(boletos.loc[row]) for row in event.selection.rows],  # type: ignore
+                boletos=[dict(boletos.loc[row]) for row in event.selection.rows],  # type: ignore
                 groups=dt_groups,
             )
         st.success(f"✅ {email_report.sent} e-mails enviados")

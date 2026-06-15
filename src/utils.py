@@ -127,12 +127,21 @@ def get_group_by_leader_cpf(cpf: str, groups: list[Group]) -> Group | None:
             return group
 
 
-def boletos_to_df(boletos: list[tuple[str, ...]]) -> pd.DataFrame:
+def get_group_apartment(group: Group | None) -> str | None:
+    if group:
+        return group.apartment
+    return "-"
+
+
+def boletos_to_df(boletos: list[tuple[str, ...]], groups: list[Group]) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
                 "Id": boleto[0],
                 "Nome": boleto[1],
+                "Apartamento": get_group_apartment(
+                    get_group_by_leader_cpf(boleto[7], groups)
+                ),
                 "Criado em": boleto[2],
                 "Vencimento": boleto[3],
                 "value": boleto[4],
@@ -144,4 +153,4 @@ def boletos_to_df(boletos: list[tuple[str, ...]]) -> pd.DataFrame:
             }
             for boleto in boletos
         ]
-    )
+    ).fillna("-", inplace=True)

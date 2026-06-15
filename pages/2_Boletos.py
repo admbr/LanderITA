@@ -23,14 +23,17 @@ st.title("📄 BOLETOS!")
 
 tab_visualization, tab_creation = st.tabs(["🧾 Visualizar boletos", "✒️ Criar boletos"])
 
-boletos = boletos_to_df(dt_boletos)
+boletos = boletos_to_df(dt_boletos, dt_groups)
 
 with tab_visualization:
     col1, col2, col3 = st.columns(3)
 
     with col1:
         selection1 = st.multiselect(
-            "Filtrar por pessoa", sorted(boletos["Nome"].unique())
+            "Filtrar por Nome", sorted(boletos["Nome"].unique())
+        )
+        selection4 = st.multiselect(
+            "Filtrar por Apartamento", sorted(boletos["Apartamento"].unique())
         )
     with col2:
         selection2 = st.multiselect(
@@ -47,11 +50,13 @@ with tab_visualization:
         boletos = boletos[boletos["Status"].isin(selection2)]
     if selection3:
         boletos = boletos[boletos["Criado em"].isin(selection3)]
+    if selection4:
+        boletos = boletos[boletos["Apartamento"].isin(selection4)]
 
     boletos = boletos.reset_index(drop=True)
     event = st.dataframe(data=boletos, on_select="rerun", selection_mode=["multi-row"])
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         if st.button("Deletar Boletos Selecionados"):
@@ -65,6 +70,14 @@ with tab_visualization:
             ].fetch_boletos_from_asaas()
             dt_boletos = st.session_state.data["boletos"]
             st.rerun()
+
+    with col3:
+        st.download_button(
+            label="Baixar boletos (CSV)",
+            data=boletos.to_csv(index=False).encode("utf-8"),
+            file_name="boletos_lavanderita.csv",
+            mime="text/csv",
+        )
 
 with tab_creation:
     st.header("Cobrar")

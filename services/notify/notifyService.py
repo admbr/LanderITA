@@ -176,7 +176,7 @@ class NotifyService:
 
     def notify_some(
         self,
-        boletos: list[tuple[str, str, str, str, str, str, str, str, str, str]],
+        boletos: list[dict[str, str]],
         groups: list[Group],
         on_progress: Callable[[str, bool], None] | None = None,
     ) -> EmailReport:
@@ -204,11 +204,11 @@ class NotifyService:
                 return report
 
             for boleto in boletos:
-                due_date = boleto[3]
-                value = boleto[4]
-                cpf_leader = boleto[7]
-                link_boleto = boleto[8]
-                link_pix = boleto[9]
+                due_date = boleto["Vencimento"]
+                value = boleto["value"]
+                cpf_leader = boleto["CPF"]
+                link_boleto = boleto["Boleto"]
+                link_pix = boleto["PIX"]
 
                 group = get_group_by_leader_cpf(cpf=cpf_leader, groups=groups)
 
