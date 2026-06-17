@@ -16,7 +16,7 @@ dt_groups = st.session_state.data["groups"]
 dt_customers = st.session_state.data["customers"]
 dt_boletos = st.session_state.data["boletos"]
 
-boletos = boletos_to_df(dt_boletos, dt_groups)
+boletos = boletos_to_df(dt_boletos, dt_residents)
 
 st.title("Notificar")
 

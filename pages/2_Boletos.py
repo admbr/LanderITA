@@ -23,7 +23,7 @@ st.title("📄 BOLETOS!")
 
 tab_visualization, tab_creation = st.tabs(["🧾 Visualizar boletos", "✒️ Criar boletos"])
 
-boletos = boletos_to_df(dt_boletos, dt_groups)
+boletos = boletos_to_df(dt_boletos, dt_residents)
 
 with tab_visualization:
     col1, col2, col3 = st.columns(3)
