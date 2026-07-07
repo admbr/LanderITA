@@ -16,19 +16,24 @@ with tab_sync:
     st.subheader("Moradores na Planilha do Sheets")
     st.caption("Fonte: uma das ♾️ planilhas")
 
-    df = pd.DataFrame(
-        [
-            {
-                "Nome": r.name,
-                "CPF": r.cpf_cnpj,
-                "Apartamento": r.apartment or "-",
-                "E-mail": r.email or "-",
-                "Turma": r.turma or "-",
-                "Telefone": r.phone or "-",
-            }
-            for r in dt_residents
-        ]
-    )
+    columns = ["Nome", "CPF", "Apartamento", "E-mail", "Turma", "Telefone"]
+
+    if dt_residents:
+        df = pd.DataFrame(
+            [
+                {
+                    "Nome": r.name,
+                    "CPF": r.cpf_cnpj,
+                    "Apartamento": r.apartment or "-",
+                    "E-mail": r.email or "-",
+                    "Turma": r.turma or "-",
+                    "Telefone": r.phone or "-",
+                }
+                for r in dt_residents
+            ]
+        )
+    else:
+        df = pd.DataFrame(columns=columns)
 
     apts = sorted(df["Apartamento"].unique())
     selected = st.multiselect("Filtrar por apartamento", apts)

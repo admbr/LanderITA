@@ -10,6 +10,7 @@ import pandas as pd
 import json
 import math
 from src.utils import *
+from src.asaas import *
 
 svc_billing = st.session_state.services["billing"]
 svc_clients = st.session_state.services["client"]
@@ -80,7 +81,7 @@ with tab_visualization:
         )
 
 with tab_creation:
-    st.header("Cobrar")
+    st.header("Cobrar em massa")
 
     col1, col2 = st.columns(2)
 
@@ -177,3 +178,28 @@ with tab_creation:
             c1.metric("✅ Sucesso", len(report.success))
             c2.metric("❌ Falhas", len(report.failed))
             c3.metric("⏭️ Pulados", len(report.skipped))
+
+    st.divider()
+
+    with st.form("test"):
+        st.header("Cobrar isoladamente")
+
+        resident = st.multiselect(
+            label="Aluno", options=dt_residents, format_func=lambda x: x.name
+        )
+
+        value = st.number_input(label="Valor a ser cobrado")
+
+        due_date = st.date_input(label="Data de Vencimento")
+
+        description = st.text_area(label="Descrição")
+
+        submitted = st.form_submit_button("Criar")
+        if submitted:
+            svc_billing.build_single_invoice(
+                group=get_group_by_cpf(resident[0].cpf_cnpj, dt_groups),
+                value=value,
+                due_date=due_date,
+                description=description,
+            )
+            pass

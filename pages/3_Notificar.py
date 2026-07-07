@@ -27,7 +27,7 @@ with col1:
         st.header("Notificar isoladamente")
 
         emails = st.multiselect(
-            label="emails",
+            label="Emails",
             options=[resident.email for resident in dt_residents],
         )
 

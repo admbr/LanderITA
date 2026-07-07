@@ -21,6 +21,21 @@ class BillingService(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     client: AsaasClient
 
+    def build_single_invoice(
+        self,
+        group: Group,
+        value: float,
+        due_date: date,
+        description: str,
+    ) -> Invoice:
+        return Invoice(
+            group=group,
+            value=value,
+            due_date=due_date,
+            description=description,
+            billing_type=BillingType.BOLETO,
+        )
+
     def build_invoices(
         self,
         extract_path: Path,
@@ -64,6 +79,21 @@ class BillingService(BaseModel):
             )
         return invoices, values
 
+    def post_single_invoice(
+        self,
+        invoice: Invoice,
+        responsible: Resident,
+    ) -> bool:
+        try:
+            customer_id = self.client.get_or_create_customer(responsible)[0]
+            payment = self.client.create_payment(
+                customer_id=customer_id, invoice=invoice
+            )
+            return True
+        except Exception as e:
+            logger.info(f"Erro ao gerar single invoice - {e}")
+            return False
+
     def post_invoices(
         self,
         invoices: list[Invoice],
@@ -93,11 +123,13 @@ class BillingService(BaseModel):
                 length = len(resident_list)
                 index = 0
                 for k in range(length):
-                    if values[resident_list[index]] >= values[resident_list[k]]:
+                    if values[resident_list[index]] > values[resident_list[k]]:
                         index = k
-                custumer_id = self.client.get_or_create_customer(resident_list[k])[0]
+                customer_id = self.client.get_or_create_customer(resident_list[index])[
+                    0
+                ]
                 payment = self.client.create_payment(
-                    customer_id=custumer_id, invoice=invoice
+                    customer_id=customer_id, invoice=invoice
                 )
                 ok.append(
                     PaymentResult(

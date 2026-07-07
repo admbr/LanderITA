@@ -46,20 +46,20 @@ def fetch_residents() -> list[Resident]:
         try:
             residents.append(
                 Resident(
-                    name=row["ALUNOS"],  # type: ignore
+                    name=row["NOME"],  # type: ignore
                     cpf_cnpj=str(row.get("CPF")) if row.get("CPF") is not None else "-",  # type: ignore
                     email=row.get("EMAIL") or None,  # type: ignore
                     phone=(
                         str(row.get("CELULAR"))
                         if row.get("CELULAR") is not None
-                        else None
+                        else "-"
                     ),
                     apartment=row.get("ALOJ APTO"),  # type: ignore
-                    turma=str(row["TURMA"]),
+                    turma=(str(row["TURMA"])),
                 )
             )
         except Exception as e:
-            # logger.warning(f"Linha ignorada: {row} — {e}")
+            logger.warning(f"Linha ignorada: {row} — {e}")
             continue
 
     return residents
@@ -121,10 +121,11 @@ def fetch_groups(residents: list[Resident]) -> list[Group]:
     return groups
 
 
-def get_group_by_leader_cpf(cpf: str, groups: list[Group]) -> Group | None:
+def get_group_by_cpf(cpf: str, groups: list[Group]) -> Group | None:
     for group in groups:
-        if cpf == group.leader.cpf_cnpj:
-            return group
+        for resident in group.residents:
+            if cpf == resident.cpf_cnpj:
+                return group
     logger.info(f"Falha ao encontrar grupo para {cpf}")
 
 

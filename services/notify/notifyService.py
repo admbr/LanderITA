@@ -9,7 +9,7 @@ from src.config import settings
 from loguru import logger
 from pydantic import BaseModel, Field, EmailStr
 from collections.abc import Callable
-from src.utils import get_group_by_leader_cpf
+from src.utils import get_group_by_cpf
 
 
 def _brl(value: float) -> str:
@@ -210,7 +210,7 @@ class NotifyService:
                 link_boleto = boleto["Boleto"]
                 link_pix = boleto["PIX"]
 
-                group = get_group_by_leader_cpf(cpf=cpf_leader, groups=groups)
+                group = get_group_by_cpf(cpf=cpf_leader, groups=groups)
 
                 if group is not None:
                     for resident in group.residents:
