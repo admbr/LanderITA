@@ -63,7 +63,7 @@ class BillingService(BaseModel):
                 logger.info(f"Residente {resident.name} tem divida de a {divida}")
                 if divida > 0.0:
                     description.append(
-                        f"Residente {resident.name} tem divida de a {divida}\n"
+                        f"Residente {resident.name} tem divida de a {divida}; "
                     )
                 value += divida
             if value == 0.0:
@@ -123,7 +123,7 @@ class BillingService(BaseModel):
                 length = len(resident_list)
                 index = 0
                 for k in range(length):
-                    if values[resident_list[index]] > values[resident_list[k]]:
+                    if values[resident_list[index]] <= values[resident_list[k]]:
                         index = k
                 customer_id = self.client.get_or_create_customer(resident_list[index])[
                     0
