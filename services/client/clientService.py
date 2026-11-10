@@ -32,7 +32,7 @@ class ClientService(BaseModel):
                 else:
                     report.created += 1
                 if on_progress:
-                    status = "existente" if existed else "criado"
+                    status = "existente" if existed == "existe" else "criado"
                     on_progress(
                         f"{group.apartment} - {group.leader.name} — {status}", True
                     )
@@ -65,7 +65,7 @@ class ClientService(BaseModel):
         logger.info("entrando em fetch_from_asaas")
         return self.client.list_all_customers()
 
-    def desativar_notificacoes_from_asaas(self) -> tuple[str, ...]:
+    def desativar_notificacoes_from_asaas(self) -> tuple[int, list[tuple[str, str]]]:
         logger.info("entrando em desativar_notificacoes_from_asaas")
         return self.client.desativar_notificacoes()
 

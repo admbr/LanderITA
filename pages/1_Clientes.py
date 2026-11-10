@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 from loguru import logger
+from src.state import ensure_state
+
+ensure_state()
 
 svc_billing = st.session_state.services["billing"]
 svc_clients = st.session_state.services["client"]
@@ -78,12 +81,11 @@ with tab_groups:
 
     st.divider()
     st.subheader("Detalhes de um apartamento")
-    ap_selecionado = st.selectbox(
+    grupo = st.selectbox(
         "Escolha o apartamento",
-        options=[g.apartment for g in dt_groups],
+        options=dt_groups,
+        format_func=lambda g: g.apartment or f"Sem apartamento — {g.leader.name}",
     )
-
-    grupo = next(g for g in dt_groups if g.apartment == ap_selecionado)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -102,6 +104,19 @@ with tab_asaas:
     dry_run = st.toggle("Modo simulação (dry-run)", value=True)
     if dry_run:
         st.info("Nenhum cliente será criado na Asaas.")
+
+    # Fora do "if" do botão de sincronizar: um st.button dentro de outro nunca
+    # executa, porque no rerun do clique o botão de fora volta a ser False
+    if st.button("🔕 Desativar notificações do Asaas para todos os clientes"):
+        with st.spinner("Desativando notificações..."):
+            n_ok, falhas_notif = svc_clients.desativar_notificacoes_from_asaas()
+        st.success(f"Notificações desativadas para {n_ok} cliente(s).")
+        if falhas_notif:
+            st.error(f"{len(falhas_notif)} falha(s)")
+            st.dataframe(
+                [{"Cliente": nome, "Erro": erro} for nome, erro in falhas_notif],
+                hide_index=True,
+            )
 
     if st.button("🪽 Sincronizar com Asaas", type="primary"):
         progress = st.progress(0)
@@ -134,9 +149,6 @@ with tab_asaas:
         col3.metric("🦓 Falhas", len(upload_report.failed))
 
         st.divider()
-
-        if st.button("Desativar Notificações do Asaas"):
-            svc_clients.desativar_notificacoes_from_asaas()
 
         diffs = svc_clients.diff(residents=dt_residents, customers=dt_customers)
 

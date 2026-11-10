@@ -6,8 +6,10 @@ from gspread.utils import ValueRenderOption
 import pandas as pd
 from pathlib import Path
 from loguru import logger
+import io
 import re
 import os
+import unicodedata
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,7 +23,7 @@ SCOPES = [
 def _apartment_conversion(ap: str) -> str | None:
     if ap.strip() == "-":
         return None
-    templist = list(re.sub(r"/[^a-z0-9]/i", "", ap))
+    templist = list(re.sub(r"[^a-z0-9]", "", ap, flags=re.IGNORECASE))
     assert len(templist) == 6, f"Erro na conversão de notação de apartamento: {ap}"
     return "".join(["H", "-", "8", templist[-1], templist[0], templist[1], templist[2]])
 
@@ -65,37 +67,188 @@ def fetch_residents() -> list[Resident]:
     return residents
 
 
+PRECO_CICLO = 3.5
+
+
+def read_omo_csv(path_csv: Path | bytes) -> pd.DataFrame | None:
+    """Lê a planilha da OMO (caminho ou bytes do upload), normaliza o CPF e
+    descarta a linha de TOTAL."""
+    source = io.BytesIO(path_csv) if isinstance(path_csv, bytes) else path_csv
+    try:
+        # A planilha da OMO usa ";" como separador e vem com BOM
+        planilha = pd.read_csv(
+            source, sep=None, engine="python", encoding="utf-8-sig"
+        )
+        planilha["Documento"] = planilha["Documento"].apply(
+            lambda x: re.sub(r"\D", "", str(x)).zfill(11) if pd.notna(x) else ""
+        )
+    except Exception as e:
+        nome = "CSV enviado" if isinstance(path_csv, bytes) else path_csv
+        logger.error(f"{nome} não pode ser lido com .csv: {e!r}")
+        return None
+    # A última linha ("TOTAL") não tem documento
+    return planilha[planilha["Documento"] != ""].reset_index(drop=True)
+
+
 def fetch_residents_value(
-    residents: list[Resident], path_csv: Path
+    residents: list[Resident], path_csv: Path | bytes
 ) -> dict[Resident, float]:
     logger.info("fetch_apartment_values() chamada")
 
-    try:
-        planilha = pd.read_csv(path_csv)
-        planilha["Documento"] = planilha["Documento"].apply(
-            lambda x: re.sub(r"\D", "", str(x))
-        )
-    except:
-        logger.error(f"{path_csv} não pode ser lido com .csv")
+    planilha = read_omo_csv(path_csv)
+    if planilha is None:
         return {}
 
     relacao: dict[Resident, float] = {}
+    cobrados: dict[str, Resident] = {}
     for resident in residents:
         matches = planilha[planilha["Documento"] == resident.cpf_cnpj]
         if matches.empty:
             relacao[resident] = 0.0
             continue
-        divida = matches.iloc[:, 7].max() * 3.5
+        # CPF repetido na planilha do Google: o uso desse CPF só pode ser
+        # cobrado uma vez, senão os dois moradores pagam pelo mesmo uso
+        if resident.cpf_cnpj in cobrados:
+            logger.warning(
+                f"CPF {resident.cpf_cnpj} repetido: uso já cobrado de "
+                f"{cobrados[resident.cpf_cnpj].name}, não será cobrado de "
+                f"{resident.name}"
+            )
+            relacao[resident] = 0.0
+            continue
+        cobrados[resident.cpf_cnpj] = resident
+        divida = matches["Reservas Usadas"].max() * PRECO_CICLO
         relacao[resident] = divida
 
     return relacao
+
+
+def cpf_valido(cpf: str) -> bool:
+    """Confere os dígitos verificadores de um CPF (só dígitos)."""
+    if len(cpf) != 11 or not cpf.isdigit() or cpf == cpf[0] * 11:
+        return False
+    d = [int(c) for c in cpf]
+    for n in (9, 10):
+        soma = sum(d[i] * (n + 1 - i) for i in range(n))
+        if (soma * 10) % 11 % 10 != d[n]:
+            return False
+    return True
+
+
+_STOPWORDS_NOME = {"de", "da", "do", "das", "dos", "e"}
+
+
+def _tokens_nome(nome: str) -> set[str]:
+    sem_acento = (
+        unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode().lower()
+    )
+    return {t for t in re.findall(r"[a-z]+", sem_acento) if t not in _STOPWORDS_NOME}
+
+
+def _omo_apartment_to_sheet(ap: str) -> str | None:
+    """Converte '114 - H8A' (OMO) para 'H-8A 114' (planilha)."""
+    m = re.match(r"\s*(\d+)\s*-\s*H-?8\s*([A-Za-z])", str(ap))
+    if not m:
+        return None
+    return f"H-8{m.group(2).upper()} {m.group(1)}"
+
+
+def omo_csv_total(path_csv: Path | bytes) -> float:
+    planilha = read_omo_csv(path_csv)
+    if planilha is None:
+        return 0.0
+    return float(planilha["Reservas Usadas"].sum()) * PRECO_CICLO
+
+
+def find_csv_mismatches(residents: list[Resident], path_csv: Path | bytes) -> pd.DataFrame:
+    """Linhas do CSV da OMO com reservas usadas cujo CPF não está na planilha
+    (portanto não seriam cobradas), com um palpite de quem pode ser."""
+    colunas = [
+        "Usuário (OMO)",
+        "CPF no CSV",
+        "Apartamento (OMO)",
+        "Reservas Usadas",
+        "Valor (R$)",
+        "Problema",
+    ]
+    planilha = read_omo_csv(path_csv)
+    if planilha is None:
+        return pd.DataFrame(columns=colunas)
+
+    cpfs_planilha = {r.cpf_cnpj for r in residents}
+    cpfs_csv = set(planilha["Documento"])
+    sem_par = planilha[
+        (~planilha["Documento"].isin(cpfs_planilha))
+        & (planilha["Reservas Usadas"] > 0)
+    ]
+
+    linhas = []
+    for _, row in sem_par.iterrows():
+        tokens = _tokens_nome(str(row["Usuário"]))
+        ap = _omo_apartment_to_sheet(row["Apartamento"])
+        # Candidatos: moradores que não aparecem no CSV e têm nome parecido,
+        # dando preferência a quem mora no mesmo apartamento
+        candidatos = [
+            r
+            for r in residents
+            if r.cpf_cnpj not in cpfs_csv and len(tokens & _tokens_nome(r.name)) >= 2
+        ]
+        candidatos.sort(key=lambda r: r.apartment != ap)
+
+        if candidatos:
+            r = candidatos[0]
+            motivo = "CPF inválido" if not cpf_valido(r.cpf_cnpj) else "CPF diferente"
+            problema = (
+                f"{motivo} na planilha: '{r.name}' ({r.apartment}) "
+                f"está com CPF {r.cpf_cnpj}"
+            )
+        else:
+            problema = "Não cadastrado na planilha"
+
+        linhas.append(
+            {
+                "Usuário (OMO)": row["Usuário"],
+                "CPF no CSV": row["Documento"],
+                "Apartamento (OMO)": row["Apartamento"],
+                "Reservas Usadas": int(row["Reservas Usadas"]),
+                "Valor (R$)": float(row["Reservas Usadas"]) * PRECO_CICLO,
+                "Problema": problema,
+            }
+        )
+    return pd.DataFrame(linhas, columns=colunas)
+
+
+def find_invalid_cpfs(residents: list[Resident]) -> pd.DataFrame:
+    """Moradores da planilha com CPF inválido ou repetido."""
+    contagem: dict[str, int] = {}
+    for r in residents:
+        contagem[r.cpf_cnpj] = contagem.get(r.cpf_cnpj, 0) + 1
+    linhas = []
+    for r in residents:
+        problemas = []
+        if not cpf_valido(r.cpf_cnpj):
+            problemas.append("CPF inválido")
+        if contagem[r.cpf_cnpj] > 1:
+            problemas.append("CPF repetido")
+        if problemas:
+            linhas.append(
+                {
+                    "Nome": r.name,
+                    "Apartamento": r.apartment,
+                    "CPF": r.cpf_cnpj,
+                    "Problema": ", ".join(problemas),
+                }
+            )
+    return pd.DataFrame(linhas, columns=["Nome", "Apartamento", "CPF", "Problema"])
 
 
 def fetch_groups(residents: list[Resident]) -> list[Group]:
     logger.info("fetch_groups() chamada")
     groups: list[Group] = []
     for resident in residents:
-        if not resident.apartment:
+        # O validator de Resident converte apartamento vazio em "-": cada
+        # morador sem apartamento precisa de um grupo só dele
+        if resident.apartment in (None, "-"):
             groups.append(
                 Group(
                     apartment=None,  # type: ignore

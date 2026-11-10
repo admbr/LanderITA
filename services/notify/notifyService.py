@@ -62,15 +62,26 @@ def render_boleto_email_some(
 
 
 def render_inadimplente_email(payment_result: PaymentResult, resident: Resident) -> str:
-    template = _env.get_template("email_inadimplente.html")
+    template = _env.get_template("email_inadiplente.html")
     return template.render(
         apartment=payment_result.invoice.group.apartment,
         value=payment_result.invoice.value,
-        due_date=payment_result.invoice.due_date,
+        due_date=str(payment_result.invoice.due_date),
         pid=payment_result.payment_id,
-        inv_url=payment_result.payment_id,
+        inv_url=payment_result.invoice_url,
         slip_url=payment_result.bank_splip_url,
     )
+
+
+# Boletos já pagos ou removidos não devem gerar e-mail de cobrança
+STATUS_SEM_COBRANCA = {
+    "RECEIVED",
+    "CONFIRMED",
+    "RECEIVED_IN_CASH",
+    "REFUNDED",
+    "REFUND_REQUESTED",
+    "DELETED",
+}
 
 
 class EmailFailure(BaseModel):
@@ -100,25 +111,29 @@ class NotifyService:
         subject: str,
         html_body: str,
     ) -> None:
+        """Envia um e-mail. Levanta exceção se falhar, para a página avisar."""
 
         logger.info("Entrou no send_one_sync")
 
-        try:
-            msg = MIMEMultipart()
-            msg["From"] = f"{settings.sender_name} <{settings.gmail_user}>"
-            msg["To"] = to  # type: ignore
-            msg["Subject"] = subject
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
+        if not to:
+            raise ValueError("destinatário sem e-mail")
 
+        msg = MIMEMultipart()
+        msg["From"] = f"{settings.sender_name} <{settings.gmail_user}>"
+        msg["To"] = to  # type: ignore
+        msg["Subject"] = subject
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        try:
             with smtplib.SMTP("smtp.gmail.com", 587) as server:
                 server.ehlo()
                 server.starttls()
                 server.login(settings.gmail_user, settings.gmail_password)
                 server.sendmail(settings.gmail_user, str(to), msg.as_string())
                 logger.info(f"Email mandado para {to}")
-
         except Exception as e:
-            logger.error(f"falha ao enviar o email: {e}")
+            logger.error(f"falha ao enviar o email para {to}: {e}")
+            raise
 
     def notify_all_sync(
         self,
@@ -204,6 +219,15 @@ class NotifyService:
                 return report
 
             for boleto in boletos:
+                if boleto.get("Status") in STATUS_SEM_COBRANCA:
+                    report.failed.append(
+                        EmailFailure(
+                            apartment=boleto.get("Apartamento"),
+                            email=None,
+                            reason=f"boleto {boleto.get('Id')} com status {boleto['Status']}: não notificado",
+                        )
+                    )
+                    continue
                 due_date = boleto["Vencimento"]
                 value = boleto["value"]
                 cpf_leader = boleto["CPF"]
@@ -212,9 +236,26 @@ class NotifyService:
 
                 group = get_group_by_cpf(cpf=cpf_leader, groups=groups)
 
-                if group is not None:
+                if group is None:
+                    report.failed.append(
+                        EmailFailure(
+                            apartment=boleto.get("Apartamento"),
+                            email=None,
+                            reason=f"nenhum morador da planilha com o CPF {cpf_leader}",
+                        )
+                    )
+                else:
                     for resident in group.residents:
-                        subject = f"[CASD] Boleto Lavanderia — {group.apartment}"
+                        if not resident.email:
+                            report.failed.append(
+                                EmailFailure(
+                                    apartment=group.apartment,
+                                    email=None,
+                                    reason=f"{resident.name} sem e-mail na planilha",
+                                )
+                            )
+                            continue
+                        subject = f"[CASD] Boleto Lavanderia — {group.apartment or group.leader.name}"
                         html = render_boleto_email_some(
                             resident=resident,
                             value=float(value),

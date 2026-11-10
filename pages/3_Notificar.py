@@ -7,6 +7,9 @@ from loguru import logger
 from models.billing import RunReport
 import pandas as pd
 from src.utils import *
+from src.state import ensure_state
+
+ensure_state()
 
 svc_billing = st.session_state.services["billing"]
 svc_clients = st.session_state.services["client"]
@@ -28,7 +31,7 @@ with col1:
 
         emails = st.multiselect(
             label="Emails",
-            options=[resident.email for resident in dt_residents],
+            options=[resident.email for resident in dt_residents if resident.email],
         )
 
         subject = st.text_input(
@@ -39,9 +42,17 @@ with col1:
 
         submitted = st.form_submit_button("Mandar")
         if submitted:
+            enviados, falhas = 0, []
             for email in emails:
-                svc_notify.send_one_sync(to=email, subject=subject, html_body=body)
-            st.write("Mandado!")
+                try:
+                    svc_notify.send_one_sync(to=email, subject=subject, html_body=body)
+                    enviados += 1
+                except Exception as e:
+                    falhas.append(f"{email}: {e}")
+            if enviados:
+                st.success(f"{enviados} e-mail(s) enviado(s).")
+            if falhas:
+                st.error("Falharam:\n\n" + "\n\n".join(falhas))
 
 with col2:
     st.header("Teste?")
@@ -87,5 +98,7 @@ with col1:
             )
         st.success(f"✅ {email_report.sent} e-mails enviados")
         if email_report.failed:
-            st.error(f"❌ {len(email_report.failed)} falhas")
-            st.json(email_report.failed)
+            st.error(f"❌ {len(email_report.failed)} não enviados")
+            st.dataframe(
+                [f.model_dump() for f in email_report.failed], hide_index=True
+            )

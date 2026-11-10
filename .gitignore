@@ -3,3 +3,5 @@
 .venv/
 **/.env
 credentials.json
+# Exportações da OMO (CPF, e-mail, telefone)
+*.csv

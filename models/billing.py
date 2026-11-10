@@ -15,6 +15,8 @@ class Invoice(BaseModel):
     due_date: date
     description: str
     billing_type: BillingType
+    # Identifica a cobrança no Asaas para não gerar a mesma duas vezes
+    external_reference: str | None = None
 
 
 class PaymentResult(BaseModel):
@@ -41,7 +43,7 @@ class RunReport(BaseModel):
 
     @property
     def success_rate(self) -> float:
-        return len(self.success) / self.total
+        return len(self.success) / self.total if self.total else 0.0
 
     @property
     def total_charged(self) -> float:

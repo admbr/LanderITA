@@ -38,7 +38,7 @@ class BillingService(BaseModel):
 
     def build_invoices(
         self,
-        extract_path: Path,
+        extract_path: Path | bytes,
         residents: list[Resident],
         groups: list[Group],
         due_date: date,
@@ -46,10 +46,14 @@ class BillingService(BaseModel):
         logger.info("build_invoices() chamada")
         values = fetch_residents_value(residents=residents, path_csv=extract_path)
         invoices: list[Invoice] = []
-        logger.info(f"Valores gerados: {values}")
+        # Não loga o dict inteiro: tem nome, CPF e e-mail de todos os moradores
+        logger.info(
+            f"Valores gerados: {sum(1 for v in values.values() if v > 0)} moradores "
+            f"com dívida, total R$ {sum(v for v in values.values() if v == v):.2f}"
+        )
         for group in groups:
             description = [
-                f"Lavanderia {group.apartment} -- {_date_br(due_date.isoformat())}\n"
+                f"Lavanderia {group.apartment or group.leader.name} -- {_date_br(due_date.isoformat())}\n"
             ]
             print(f"\n")
             logger.info(
@@ -75,24 +79,26 @@ class BillingService(BaseModel):
                     due_date=due_date,
                     description=" ".join(description),
                     billing_type=BillingType.BOLETO,
+                    external_reference=self.external_reference(group, due_date),
                 )
             )
         return invoices, values
+
+    @staticmethod
+    def external_reference(group: Group, due_date: date) -> str:
+        """Chave estável de uma cobrança em massa: grupo + vencimento."""
+        chave = group.apartment or group.leader.cpf_cnpj
+        return f"lavanderia-{due_date.isoformat()}-{chave.replace(' ', '_')}"
 
     def post_single_invoice(
         self,
         invoice: Invoice,
         responsible: Resident,
-    ) -> bool:
-        try:
-            customer_id = self.client.get_or_create_customer(responsible)[0]
-            payment = self.client.create_payment(
-                customer_id=customer_id, invoice=invoice
-            )
-            return True
-        except Exception as e:
-            logger.info(f"Erro ao gerar single invoice - {e}")
-            return False
+    ) -> dict:
+        """Cria a cobrança no Asaas e devolve o pagamento criado.
+        Erros são propagados para a página mostrar o motivo."""
+        customer_id = self.client.get_or_create_customer(responsible)[0]
+        return self.client.create_payment(customer_id=customer_id, invoice=invoice)
 
     def post_invoices(
         self,
@@ -119,6 +125,19 @@ class BillingService(BaseModel):
                     on_progress(f"[dry_run] {invoice.group.apartment}", True)
                 continue
             try:
+                if invoice.external_reference:
+                    existente = self.client.find_payment_by_reference(
+                        invoice.external_reference
+                    )
+                    if existente:
+                        motivo = f"já existe a cobrança {existente['id']} ({invoice.external_reference})"
+                        skipped.append(
+                            BillingFailure(apartment=invoice.group.apartment, reason=motivo)
+                        )
+                        if on_progress:
+                            on_progress(f"[pulado] {invoice.group.apartment}: {motivo}", True)
+                        continue
+
                 resident_list = [resident for resident in invoice.group.residents]
                 length = len(resident_list)
                 index = 0
@@ -153,7 +172,12 @@ class BillingService(BaseModel):
         logger.info("entrando em fetch_boletos_from_asaas")
         return self.client.list_all_payments()
 
-    def delete_boletos_by_id(self, ids: list[str]) -> None:
+    def delete_boletos_by_id(self, ids: list[str]) -> list[tuple[str, str]]:
+        """Remove as cobranças e devolve as que falharam: [(id, motivo)]."""
         logger.info("entrando em delete_boleto_by_id")
+        falhas = []
         for id in ids:
-            self.client.del_boleto_by_id(id)
+            deleted, info = self.client.del_boleto_by_id(id)
+            if not deleted:
+                falhas.append((id, info))
+        return falhas
